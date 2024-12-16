@@ -1,0 +1,82 @@
+name: RDP Workflow with Full Access
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  rdp-job:
+    runs-on: warp-windows-latest-x64-8x
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Check if snapshot "HenCoders" exists
+        id: snapshot_check
+        run: |
+          if warp-cli snapshot list | grep -q "HenCoders"; then
+            echo "snapshot_exists=true" >> $GITHUB_ENV
+          else
+            echo "snapshot_exists=false" >> $GITHUB_ENV
+
+      - name: Restore Snapshot "HenCoders"
+        if: env.snapshot_exists == 'true'
+        run: warp-cli snapshot restore --name "HenCoders"
+
+      - name: Create Snapshot "HenCoders"
+        if: env.snapshot_exists == 'false'
+        run: warp-cli snapshot create --name "HenCoders" --description "Snapshot after build"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build project
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Install Tailscale
+        run: curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: Authenticate with Tailscale and Log IP
+        id: tailscale_auth
+        run: |
+          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTHKEY }}
+          tailscale ip > tailscale_ip.txt
+          echo "Tailscale IP Address: $(cat tailscale_ip.txt)"
+          echo "::set-output name=ip::$(cat tailscale_ip.txt)"
+        shell: bash
+
+      - name: Log Username and Password
+        run: |
+          echo "RDP Username: Hendra"
+          echo "RDP Password: HenCoders13"
+
+      - name: Enable Remote Desktop on Windows
+        run: |
+          powershell -Command "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server' -Name 'fDenyTSConnections' -Value 0"
+          powershell -Command "Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'"
+
+      - name: Save RDP Credentials
+        run: |
+          cmdkey /add:127.0.0.1 /user:Hendra /pass:HenCoders13
+          cmdkey /add:$(cat tailscale_ip.txt) /user:Hendra /pass:HenCoders13
+
+      - name: Grant Administrator Access
+        run: powershell -Command "Add-LocalGroupMember -Group Administrators -Member Hendra"
+
+      - name: Loop until 6 hours elapsed
+        run: |
+          start_time=$(date +%s)
+          end_time=$((start_time + 21600))
+          while [ $(date +%s) -lt $end_time ]; do
+            echo "Waiting for 6 hours to pass..."
+            sleep 600
+          done
+          echo "6 hours elapsed, proceeding to complete."
+
+      - name: Check Tailscale status
+        run: tailscale status
